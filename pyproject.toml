@@ -1,0 +1,37 @@
+[tool.poetry]
+name = "shadow"
+version = "0.1.0"
+description = ""
+authors = ["jc <jchuayurui@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{ include = "shadow", from = "src" }]
+
+
+[tool.poetry.dependencies]
+python = ">=3.12"
+polymarket-apis = {git = "https://github.com/qualiaenjoyer/polymarket-apis"}
+websockets = "^16.0"
+py-clob-client = "^0.34.6"
+pydantic = "^2.12.5"
+python-dotenv = "^1.2.1"
+clickhouse-connect = "^0.11.0"
+redis = "^7.2.0"
+opentelemetry-api = "^1.39.1"
+opentelemetry-sdk = "^1.39.1"
+opentelemetry-exporter-otlp-proto-grpc = "^1.39.1"
+opentelemetry-exporter-otlp-proto-http = "^1.39.1"
+web3 = "^7.0"
+httpx = "^0.28.0"
+
+
+[tool.poetry.group.dev.dependencies]
+black = "^26.1.0"
+isort = "^8.0.0"
+mypy = "^1.19.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+[tool.poetry.scripts]
+shadow-bot = "shadow.main:main_sync"
