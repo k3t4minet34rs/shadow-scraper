@@ -1,0 +1,32 @@
+# ── writer ─────────────────────────────────────────────────────────────────────
+writer:
+  path: data/btc_obs.csv
+  flush_interval_s: 5
+
+# ── duration (null = run forever) ──────────────────────────────────────────────
+duration_seconds: null
+
+# ── exchanges ──────────────────────────────────────────────────────────────────
+binance:
+  enabled: true
+  kline: true          # 1m + 5m closed candles  → kline_*, btc_price  (~1/min)
+  aggtrade: true       # every individual trade   → trade_*             (~10-50/s)
+  depth5: true         # top-5 book at 100ms      → bid_vol_5, ofi      (~10/s)
+  futures: true        # markPrice@1s             → mark_price, funding  (~1/s)
+
+bybit:
+  enabled: false       # spot ticker → btc_price, btc_bid, btc_ask
+
+kraken:
+  enabled: false       # spot ticker → btc_price, btc_bid, btc_ask
+
+coinbase:
+  enabled: false       # spot ticker → btc_price, btc_bid, btc_ask
+
+okx:
+  enabled: false       # spot ticker → btc_price, btc_bid, btc_ask
+
+# ── polymarket ─────────────────────────────────────────────────────────────────
+polymarket:
+  enabled: true
+  price_change: false  # ~660K rows/hr — only enable when studying microstructure
