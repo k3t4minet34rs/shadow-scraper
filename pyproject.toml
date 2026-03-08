@@ -8,6 +8,7 @@ readme = "README.md"
 packages = [
     { include = "shadow", from = "src" },
     { include = "scraper", from = "src" },
+    { include = "executor", from = "src" },
 ]
 
 
@@ -39,5 +40,6 @@ mypy = "^1.19.1"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 [tool.poetry.scripts]
-shadow-bot = "shadow.main:main_sync"
-shadow-scraper = "scraper.main:main"
+shadow-bot      = "shadow.main:main_sync"
+shadow-scraper  = "scraper.main:main"
+shadow-executor = "executor.main:main"
