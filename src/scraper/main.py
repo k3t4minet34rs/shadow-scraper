@@ -68,6 +68,15 @@ async def run(cfg: dict) -> None:
             poly.stream(stop, market, writer, cfg["polymarket"])
         ))
 
+    # ── CSV rotation (every 5 days) ───────────────────────────────────────────
+    async def _rotate_loop():
+        while not stop.is_set():
+            await asyncio.sleep(5 * 24 * 3600)
+            writer.rotate()
+            print(f"CSV rotated")
+
+    tasks.append(asyncio.create_task(_rotate_loop()))
+
     # ── optional hard stop ─────────────────────────────────────────────────────
     duration = cfg.get("duration_seconds")
     if duration:

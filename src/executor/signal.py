@@ -4,13 +4,17 @@ Real-time forward-fill and signal detection.
 Mirrors the DuckDB forward-fill logic from the analysis notebook,
 but processes one CSV row at a time as it arrives from the scraper.
 """
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Optional
 
 from scipy.stats import norm
 
-MINUTES_PER_YEAR = 365 * 24 * 60
+logger = logging.getLogger(__name__)
+
+MINUTES_PER_YEAR   = 365 * 24 * 60
+FALLBACK_VOL_1M    = 0.0012   # typical BTC 1-min realized vol (used before first kline arrives)
 
 
 @dataclass
@@ -85,25 +89,35 @@ class TickState:
             self.no_ask = na
 
     # ── fair value ─────────────────────────────────────────────────────────────
-    def compute_fv_yes(self) -> Optional[float]:
+    def compute_fv_yes(self, debug: bool = False) -> Optional[float]:
         if not self.btc_price or not self.btc_ref or not self.seconds_remaining:
             return None
         if self.seconds_remaining <= 0:
             return None
 
-        T     = self.seconds_remaining / (365 * 24 * 3600)
-        sigma = (self.vol_1m or 0.0) * math.sqrt(MINUTES_PER_YEAR)
-
-        if sigma <= 0:
-            return 1.0 if self.btc_price > self.btc_ref else 0.0
+        T         = self.seconds_remaining / (365 * 24 * 3600)
+        vol_used  = self.vol_1m or FALLBACK_VOL_1M
+        sigma     = vol_used * math.sqrt(MINUTES_PER_YEAR)
+        log_ret   = math.log(self.btc_price / self.btc_ref)
 
         drift = 0.0
         if self.prev_close and self.prev_close > 0:
             drift = math.log(self.btc_price / self.prev_close) * MINUTES_PER_YEAR
 
-        d2 = (math.log(self.btc_price / self.btc_ref)
-              + (drift - 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
-        return float(norm.cdf(d2))
+        sigma_sqrt_T = sigma * math.sqrt(T)
+        drift_term   = (drift - 0.5 * sigma ** 2) * T
+        d2           = (log_ret + drift_term) / sigma_sqrt_T
+        fv           = float(norm.cdf(d2))
+
+        logger.debug(
+            f"[fv_calc] secs={self.seconds_remaining:.1f}  "
+            f"btc={self.btc_price:.2f}  ref={self.btc_ref:.2f}  "
+            f"log_ret={log_ret:.6f}  vol={'fallback' if self.vol_1m is None else f'{self.vol_1m:.6f}'}  "
+            f"sigma={sigma:.6f}  drift={drift:.4f}  "
+            f"drift_term={drift_term:.6f}  sigma_sqrt_T={sigma_sqrt_T:.6f}  "
+            f"d2={d2:.4f}  fv={fv:.4f}"
+        )
+        return fv
 
     # ── signal check ───────────────────────────────────────────────────────────
     def check_signal(self, cfg: dict) -> bool:

@@ -47,6 +47,16 @@ class Writer:
             self._f.flush()
             self._last_flush = now
 
+    def rotate(self) -> None:
+        """Truncate the CSV and start fresh with a new header (hourly cleanup)."""
+        self._f.flush()
+        self._f.close()
+        with open(self.path, "w", newline="") as f:   # truncate
+            w = csv.DictWriter(f, fieldnames=CSV_FIELDS, extrasaction="ignore")
+            w.writeheader()
+        self._f = open(self.path, "a", newline="")
+        self._w = csv.DictWriter(self._f, fieldnames=CSV_FIELDS, extrasaction="ignore")
+
     def close(self) -> None:
         self._f.flush()
         self._f.close()

@@ -1,14 +1,14 @@
 # ── signal parameters (from backtest) ─────────────────────────────────────────
 signal:
-  edge_thresh:   0.20   # fv_yes - yes_ask >= this
+  edge_thresh:   0.30   # fv_yes - yes_ask >= this  (was 0.20, tightened from 2GB backtest)
   ofi_min:       0.20   # order flow imbalance >= this
-  ask_max:       0.40   # only buy cheap contracts
+  ask_max:       0.50   # only buy underpriced contracts (was 0.40)
   time_filter_s: 90     # only trade in last N seconds of market
   min_secs_left: 5      # bail if less than this left (too late to fill)
 
 # ── order parameters ───────────────────────────────────────────────────────────
 order:
-  stake_usdc: 10.0      # $ per trade — start small
+  stake_usdc: 3.0      # $ per trade — start small
 
 # ── file paths ────────────────────────────────────────────────────────────────
 paths:

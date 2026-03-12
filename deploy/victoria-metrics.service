@@ -1,0 +1,24 @@
+[Unit]
+Description=VictoriaMetrics — time-series metrics storage
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+
+# binary lives at /home/ubuntu/victoria-metrics-prod (see deploy-vm.sh)
+ExecStart=/home/ubuntu/victoria-metrics-prod \
+    -storageDataPath=/home/ubuntu/vm-data \
+    -retentionPeriod=3   \
+    -httpListenAddr=:8428
+
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=victoria-metrics
+
+[Install]
+WantedBy=multi-user.target

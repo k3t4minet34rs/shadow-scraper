@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 from scraper.market import MarketState as ActiveMarket, fetch_active_market
 from .metrics import Metrics
 from .order import OrderPlacer
+from .redeemer import Redeemer
 from .signal import TickState
 from .store import TradeStore
 
@@ -115,6 +116,20 @@ class Executor:
         # check signal (skip if already traded this market)
         if slug in self.traded:
             return
+
+        # verbose signal debug — only when book data is present
+        if state.yes_ask and state.ofi is not None and secs <= self.sig_cfg["time_filter_s"]:
+            fv   = state.compute_fv_yes()   # one call, reused by check_signal below
+            edge = (fv - state.yes_ask) if fv is not None else None
+            fv_s   = f"{fv:.3f}"   if fv   is not None else "None"
+            edge_s = f"{edge:.3f}" if edge is not None else "None"
+            logger.debug(
+                f"[signal?] slug={slug[-14:]}  secs={secs:.0f}  "
+                f"fv={fv_s}  ask={state.yes_ask:.3f}  "
+                f"edge={edge_s}  ofi={state.ofi:.3f}  "
+                f"vol_1m={state.vol_1m}  btc_ref={state.btc_ref}"
+            )
+
         if not state.check_signal(self.sig_cfg):
             return
 
@@ -132,6 +147,9 @@ class Executor:
             info["ofi"],      info["seconds_remaining"],
         )
 
+        # mark traded immediately — prevents re-firing if order fails
+        self.traded.add(slug)
+
         # get YES token id from active market watcher
         yes_token = self.active.yes_id if self.active.slug == slug else None
         if not yes_token:
@@ -147,28 +165,40 @@ class Executor:
         trade_id = self.store.log_entry(slug, yes_token, info, order, self.stake)
 
         if order["success"]:
-            self.traded.add(slug)
             self.pending[slug] = {
-                "id":       trade_id,
-                "yes_ask":  state.yes_ask,
-                "stake":    self.stake,
+                "id":           trade_id,
+                "yes_ask":      state.yes_ask,
+                "stake":        self.stake,
+                "yes_token_id": yes_token,
             }
 
     async def _check_resolution(self, slug: str, state: TickState) -> None:
         if slug not in self.pending:
             return
-        if state.seconds_remaining > 3:
+        if state.seconds_remaining > 0:
             return   # market still running
+
+        # market has expired — query actual resolution from Polymarket
+        trade   = self.pending.pop(slug)
+        yes_ask = trade["yes_ask"]
+        stake   = trade["stake"]
+
         if not state.btc_price or not state.btc_ref:
+            self.pending[slug] = trade   # no price data yet, retry next tick
             return
 
-        trade    = self.pending.pop(slug)
         resolved = 1 if state.btc_price > state.btc_ref else 0
-        yes_ask  = trade["yes_ask"]
-        stake    = trade["stake"]
-        pnl_g    = ((1 - yes_ask) if resolved else -yes_ask) * stake
-        pnl_n    = pnl_g - 0.02 * stake   # 2% Polymarket fee
 
+        # correct PnL: stake is cash spent, size = stake/yes_ask contracts
+        # win:  receive size*$1 = stake/yes_ask, profit = stake*(1-yes_ask)/yes_ask
+        # loss: lose full stake
+        pnl_g = stake * (1 - yes_ask) / yes_ask if resolved else -stake
+        pnl_n = pnl_g - 0.02 * stake   # 2% Polymarket fee
+
+        logger.info(
+            f"Resolved: slug={slug[-14:]}  "
+            f"{'WIN' if resolved else 'LOSS'}  pnl_net=${pnl_n:.2f}"
+        )
         self.store.log_resolution(trade["id"], resolved, pnl_g, pnl_n)
         self.metrics.on_resolution(resolved, pnl_n, yes_ask)
 
@@ -176,18 +206,31 @@ class Executor:
 
     async def tail_csv(self) -> None:
         csv_path = Path(self.cfg["paths"]["csv"])
-        logger.info(f"Opening {csv_path}")
+        abs_path = csv_path.resolve()
+        logger.info(f"CSV path : {abs_path}")
+        logger.info(f"Exists   : {abs_path.exists()}")
 
-        with open(csv_path, "r") as f:
+        if not abs_path.exists():
+            logger.error(
+                f"CSV not found at {abs_path}. "
+                f"Either rsync it from EC2 or update config.yaml paths.csv"
+            )
+            return
+
+        with open(abs_path, "r") as f:
             headers = f.readline().strip().split(",")
+            logger.info(f"Headers  : {headers}")
 
             # replay recent history (~500 KB) to hydrate state before going live
             f.seek(0, 2)
             size = f.tell()
-            f.seek(max(0, size - 500_000))
+            logger.info(f"CSV size : {size / 1_000_000:.1f} MB")
+            seek_to = max(0, size - 500_000)
+            f.seek(seek_to)
             f.readline()   # discard partial line
 
-            logger.info("Replaying recent history…")
+            logger.info(f"Replaying from byte {seek_to:,} …")
+            replay_rows = 0
             for line in f:
                 row = parse_row(line, headers)
                 slug = row.get("slug", "")
@@ -195,17 +238,55 @@ class Executor:
                     if slug not in self.ticks:
                         self.ticks[slug] = TickState(slug=slug)
                     self.ticks[slug].update(row)
+                    replay_rows += 1
 
             logger.info(
-                f"Context loaded for {len(self.ticks)} markets. "
-                f"Tailing new rows…"
+                f"Replay done: {replay_rows:,} rows, "
+                f"{len(self.ticks)} markets hydrated"
             )
 
+            # log state of each hydrated market
+            for slug, state in self.ticks.items():
+                logger.info(
+                    f"  market={slug[-14:]}  "
+                    f"btc_ref={state.btc_ref}  btc_price={state.btc_price}  "
+                    f"yes_ask={state.yes_ask}  ofi={state.ofi}  vol_1m={state.vol_1m}"
+                )
+
+            logger.info("Tailing new rows… (waiting for scraper to write)")
+
             # live tail
+            ticks_seen = 0
             while True:
+                # detect CSV rotation (file was truncated by scraper)
+                cur_pos   = f.tell()
+                file_size = abs_path.stat().st_size
+                if file_size < cur_pos:
+                    logger.info(f"CSV rotated (size {file_size} < pos {cur_pos}) — replaying")
+                    seek_to = max(0, file_size - 500_000)
+                    f.seek(seek_to)
+                    f.readline()   # discard partial line
+                    for line in f:
+                        row = parse_row(line, headers)
+                        slug = row.get("slug", "")
+                        if slug:
+                            if slug not in self.ticks:
+                                self.ticks[slug] = TickState(slug=slug)
+                            self.ticks[slug].update(row)
+
                 line = f.readline()
                 if line:
+                    ticks_seen += 1
                     row = parse_row(line, headers)
+                    if ticks_seen % 500 == 0:
+                        slug = row.get("slug", "")
+                        state = self.ticks.get(slug)
+                        logger.info(
+                            f"[tick {ticks_seen}] slug={slug[-14:]}  "
+                            f"yes_ask={state.yes_ask if state else '?'}  "
+                            f"ofi={state.ofi if state else '?'}  "
+                            f"secs={state.seconds_remaining if state else '?'}"
+                        )
                     await self.process_row(row)
                 else:
                     await asyncio.sleep(0.5)
@@ -214,22 +295,32 @@ class Executor:
 # ── entry point ───────────────────────────────────────────────────────────────
 
 async def _run() -> None:
-    cfg    = load_config()
-    active = ActiveMarket()
-    stop   = asyncio.Event()
+    cfg      = load_config()
+    active   = ActiveMarket()
+    stop     = asyncio.Event()
+    redeemer = Redeemer()
 
     executor = Executor(cfg, active)
+    await redeemer.start()
 
-    await asyncio.gather(
-        active.watch(stop, poll_interval=30),
-        executor.tail_csv(),
-        executor.metrics.push_loop(),
-    )
+    try:
+        await asyncio.gather(
+            active.watch(stop, poll_interval=30),
+            executor.tail_csv(),
+            executor.metrics.push_loop(),
+        )
+    finally:
+        await redeemer.stop()
 
 
 def main() -> None:
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true", help="Enable DEBUG logging")
+    args, _ = parser.parse_known_args()
+
     logging.basicConfig(
-        level   = logging.INFO,
+        level   = logging.DEBUG if args.debug else logging.INFO,
         format  = "%(asctime)s %(levelname)-8s %(name)s: %(message)s",
         datefmt = "%H:%M:%S",
     )
