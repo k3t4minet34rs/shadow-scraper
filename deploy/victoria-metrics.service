@@ -5,11 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
+User=admin
 
-# binary lives at /home/ubuntu/victoria-metrics-prod (see deploy-vm.sh)
-ExecStart=/home/ubuntu/victoria-metrics-prod \
-    -storageDataPath=/home/ubuntu/vm-data \
+# binary lives at /home/admin/victoria-metrics-prod (see deploy-vm.sh)
+ExecStart=/home/admin/victoria-metrics-prod \
+    -storageDataPath=/home/admin/vm-data \
     -retentionPeriod=3   \
     -httpListenAddr=:8428
 
