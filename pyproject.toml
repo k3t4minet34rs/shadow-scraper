@@ -9,6 +9,7 @@ packages = [
     { include = "shadow", from = "src" },
     { include = "scraper", from = "src" },
     { include = "executor", from = "src" },
+    { include = "weather", from = "src" },
 ]
 
 
@@ -44,3 +45,4 @@ build-backend = "poetry.core.masonry.api"
 shadow-bot      = "shadow.main:main_sync"
 shadow-scraper  = "scraper.main:main"
 shadow-executor = "executor.main:main"
+weather-cycle   = "weather.main:main"

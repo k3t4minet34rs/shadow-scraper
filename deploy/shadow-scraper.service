@@ -3,6 +3,8 @@ Description=Shadow BTC Scraper — market data collector
 Documentation=https://github.com/k3t4minet34rs
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -17,8 +19,6 @@ ExecStart=/home/admin/.local/bin/poetry run shadow-scraper
 # restart on any failure (OOM, network drop, exchange ban, etc.)
 Restart=always
 RestartSec=5
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 # give Python time to flush & close CSV on SIGTERM
 TimeoutStopSec=15

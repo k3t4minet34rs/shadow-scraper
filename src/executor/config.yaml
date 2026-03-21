@@ -2,13 +2,14 @@
 signal:
   edge_thresh:   0.30   # fv_yes - yes_ask >= this  (was 0.20, tightened from 2GB backtest)
   ofi_min:       0.20   # order flow imbalance >= this
-  ask_max:       0.50   # only buy underpriced contracts (was 0.40)
+  ask_min:       0.25   # skip near-certain losers (BTC well below ref)
+  ask_max:       0.60   # only buy underpriced contracts (was 0.50)
   time_filter_s: 90     # only trade in last N seconds of market
   min_secs_left: 5      # bail if less than this left (too late to fill)
 
 # ── order parameters ───────────────────────────────────────────────────────────
 order:
-  stake_usdc: 3.0      # $ per trade — start small
+  stake_usdc: 1.0      # $ per trade — reduced while monitoring
 
 # ── file paths ────────────────────────────────────────────────────────────────
 paths:

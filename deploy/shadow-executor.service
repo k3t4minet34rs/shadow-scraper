@@ -4,6 +4,8 @@ Documentation=https://github.com/k3t4minet34rs
 After=network-online.target shadow-scraper.service
 Wants=network-online.target
 # executor can survive a scraper restart (tails existing CSV), so no hard Requires=
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -18,8 +20,6 @@ ExecStart=/home/admin/.local/bin/poetry run shadow-executor
 # restart on any failure
 Restart=always
 RestartSec=5
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 # give Python time to flush trades DB on SIGTERM
 TimeoutStopSec=15

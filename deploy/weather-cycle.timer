@@ -1,0 +1,14 @@
+[Unit]
+Description=Weather prediction market cycle — runs 4x daily
+Requires=weather-cycle.service
+
+[Timer]
+# Fire at 02, 08, 14, 20 UTC
+OnCalendar=*-*-* 02,08,14,20:00:00
+Unit=weather-cycle.service
+
+# Run missed cycles if the machine was off
+Persistent=true
+
+[Install]
+WantedBy=timers.target

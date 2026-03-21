@@ -132,6 +132,7 @@ class TickState:
         return (
             edge                  >= cfg["edge_thresh"]   and
             self.ofi              >= cfg["ofi_min"]       and
+            self.yes_ask          >= cfg.get("ask_min", 0.0) and
             self.yes_ask          <  cfg["ask_max"]       and
             self.seconds_remaining <= cfg["time_filter_s"] and
             self.seconds_remaining >= cfg["min_secs_left"]
