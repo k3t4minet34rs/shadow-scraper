@@ -49,40 +49,43 @@ def step_discover(db: DB, poly: PolymarketDiscovery):
     logger.info(f"Discovery: {len(raw_events)} events fetched, {new} new")
 
 
+def _tradeable_events(active_events: list, today_utc, utc_now_hour: float) -> list:
+    """Filter active events to those within the trading window."""
+    out = []
+    for event in active_events:
+        event_date = date_type.fromisoformat(event["target_date"])
+        days_ahead = (event_date - today_utc).days
+        if days_ahead < 0 or days_ahead > MAX_DAYS_AHEAD:
+            continue
+        if event_date == today_utc:
+            est_local_hour = (utc_now_hour + event["lon"] / 15) % 24
+            if est_local_hour >= CUTOFF_LOCAL_HOUR:
+                continue
+        out.append(event)
+    return out
+
+
 def step_forecast_and_price(db: DB, poly: PolymarketDiscovery,
                              placer: WeatherOrderPlacer | None = None,
                              dry_run: bool = False,
                              budget: float = DEFAULT_BUDGET_USDC):
     """For each active event: forecast → price → decide → execute."""
     active_events = db.get_active_events()
-    logger.info(f"Processing {len(active_events)} active events")
+    today_utc    = datetime.now(timezone.utc).date()
+    utc_now      = datetime.now(timezone.utc)
+    utc_now_hour = utc_now.hour + utc_now.minute / 60
 
-    for event in active_events:
+    tradeable = _tradeable_events(active_events, today_utc, utc_now_hour)
+    logger.info(f"Processing {len(tradeable)} tradeable events "
+                f"(of {len(active_events)} active)")
+
+    for event in tradeable:
         event_id    = event["event_id"]
         city        = event["city"]
         target_date = event["target_date"]
         lat, lon    = event["lat"], event["lon"]
 
         logger.info(f"── {city} {target_date} ──")
-
-        # Skip events beyond today + tomorrow — forecast accuracy beyond
-        # 1 day ahead isn't reliable enough to trade on.
-        today_utc   = datetime.now(timezone.utc).date()
-        event_date  = date_type.fromisoformat(target_date)
-        days_ahead  = (event_date - today_utc).days
-        if days_ahead > MAX_DAYS_AHEAD:
-            logger.debug(f"  Skipping — {days_ahead} days ahead (max {MAX_DAYS_AHEAD})")
-            continue
-
-        # Skip today's events once local time passes 4pm — market is
-        # near-resolved and prices reflect actual observed temperature.
-        # Estimate local hour from longitude: UTC_offset ≈ lon / 15
-        if event_date == today_utc:
-            utc_now_hour  = datetime.now(timezone.utc).hour + datetime.now(timezone.utc).minute / 60
-            est_local_hour = (utc_now_hour + lon / 15) % 24
-            if est_local_hour >= CUTOFF_LOCAL_HOUR:
-                logger.info(f"  Skipping — local time ~{est_local_hour:.1f}h, past {CUTOFF_LOCAL_HOUR}:00 cutoff")
-                continue
 
         # 1. Forecast
         members = fetch_ensemble(lat, lon, target_date)
@@ -120,7 +123,7 @@ def step_forecast_and_price(db: DB, poly: PolymarketDiscovery,
         # 3. Decide trades
         position = db.get_position(event_id)
         trades   = decide_trades(bucket_fvs, position,
-                                 budget, len(active_events))
+                                 budget, len(tradeable))
 
         if not trades:
             logger.info(f"No trades for {city} {target_date}")
