@@ -10,10 +10,15 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-ENSEMBLE_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
-MODEL        = "icon_seamless"   # ICON seamless ensemble — ~40 members (DWD)
+ENSEMBLE_URL   = "https://ensemble-api.open-meteo.com/v1/ensemble"
+MODEL          = "icon_seamless"   # ICON seamless ensemble — ~40 members (DWD)
 # Note: ecmwf_ifs04 is the deterministic ECMWF model (no ensemble members).
 # icon_seamless returns temperature_2m_max_member01..memberN per day.
+
+# Station warm bias correction: airport METAR stations run slightly warmer
+# than ICON's ~7km grid cells. +0.5°C is a conservative estimate based on
+# early trading results (most misses were ~1°C too cold).
+STATION_BIAS_C = 0.5
 
 
 def fetch_ensemble(lat: float, lon: float, target_date: date | str) -> list[float] | None:
@@ -63,10 +68,14 @@ def fetch_ensemble(lat: float, lon: float, target_date: date | str) -> list[floa
         logger.warning(f"No ensemble members returned for ({lat},{lon}) {target_date}")
         return None
 
+    if STATION_BIAS_C:
+        members = [m + STATION_BIAS_C for m in members]
+
     logger.info(f"Fetched {len(members)} ensemble members for ({lat},{lon}) {target_date} "
                 f"p10={np.percentile(members,10):.1f} "
                 f"p50={np.percentile(members,50):.1f} "
-                f"p90={np.percentile(members,90):.1f}")
+                f"p90={np.percentile(members,90):.1f} "
+                f"bias={STATION_BIAS_C:+.1f}°C")
     return members
 
 
